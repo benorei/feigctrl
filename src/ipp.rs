@@ -1,52 +1,50 @@
 use binrw::binrw;
 
 #[binrw]
+#[br(import(message_type: u8, data_length: u16))]
 #[derive(Debug)]
-pub enum MessageType {
-    #[br(magic = 0x2u8)]
-    Version,
-    #[br(magic = 0x3u8)]
-    VersionReply,
+pub enum Message {
+    #[br(pre_assert(message_type == 0x2u8))]
+    Version(#[br(count = data_length)] Vec<u8>),
+    #[br(pre_assert(message_type == 0x3u8))]
+    VersionReply(#[br(count = data_length)] Vec<u8>),
 
-    #[br(magic = 0x4u8)]
-    Status,
-    #[br(magic = 0x5u8)]
-    StatusReply,
+    #[br(pre_assert(message_type == 0x4u8))]
+    Status(#[br(count = data_length)] Vec<u8>),
+    #[br(pre_assert(message_type == 0x5u8))]
+    StatusReply(#[br(count = data_length)] Vec<u8>),
 
-    #[br(magic = 0x7u8)]
-    Heartbeat,
-    #[br(magic = 0xFu8)]
-    Startup,
+    #[br(pre_assert(message_type == 0x7u8))]
+    Heartbeat(#[br(count = data_length)] Vec<u8>),
+    #[br(pre_assert(message_type == 0xFu8))]
+    Startup(#[br(count = data_length)] Vec<u8>),
 
-    #[br(magic = 0xBEu8)]
-    PICCRead,
+    // >=0x80 has crc
+    #[br(pre_assert(message_type == 0xBEu8))]
+    PICCRead(#[br(count = data_length)] Vec<u8>),
 
-    #[br(magic = 0xD1u8)]
-    EMVTransactionSuccessUnk,
+    #[br(pre_assert(message_type == 0xD1u8))]
+    EMVTransactionSuccessUnk(#[br(count = data_length)] Vec<u8>),
 
-    Unknown(u8),
+    Unknown(#[br(count = data_length)] Vec<u8>),
 }
 
 #[binrw]
 #[brw(big, magic = 0xbcu8)]
 #[derive(Debug)]
-pub struct IppHeader {
+pub struct IppMessage {
     pub sequence_number: u8,
     pub unk: u8,
 
     // MSB of this (when set to 1) determines whether the message uses a data CRC or not
-    pub message_type: MessageType,
+    pub message_type: u8,
 
     pub data_length: u16,
-    pub crc: u8,
-}
+    pub crc_header: u8,
 
-#[binrw]
-#[brw(big)]
-#[derive(Debug)]
-pub struct IppMessage {
-    pub header: IppHeader,
+    #[br(args(message_type, data_length))]
+    pub data: Message,
 
-    #[br(count = header.data_length)]
-    pub data: Vec<u8>,
+    #[brw(if((message_type >> 7) > 0))]
+    pub data_crc: u32,
 }

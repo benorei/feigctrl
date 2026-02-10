@@ -3,7 +3,7 @@
 use binrw::BinRead;
 use std::io::{Cursor, Read};
 
-use crate::ipp::{IppHeader, IppMessage};
+use crate::ipp::IppMessage;
 
 mod ipp;
 
@@ -23,7 +23,7 @@ fn main() {
         }
 
         let mut out_cursor = Cursor::new(&current_message);
-        let Ok(ipp_message) = ipp::IppMessage::read(&mut out_cursor) else {
+        let Ok(ipp_message) = IppMessage::read(&mut out_cursor) else {
             println!("Received non-IPP message over serial!");
             continue;
         };
