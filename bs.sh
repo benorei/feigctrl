@@ -1,0 +1,1 @@
+cargo zigbuild --release --target armv7-unknown-linux-gnueabihf.2.28 && scp -O target/armv7-unknown-linux-gnueabihf/release/feig root@10.0.0.127:/init/efad/mp_sd

@@ -16,15 +16,39 @@ pub enum Message {
 
     #[br(pre_assert(message_type == 0x7u8))]
     Heartbeat(#[br(count = data_length)] Vec<u8>),
+    
     #[br(pre_assert(message_type == 0xFu8))]
     Startup(#[br(count = data_length)] Vec<u8>),
 
     // >=0x80 has crc
     #[br(pre_assert(message_type == 0xBEu8))]
-    PICCRead(#[br(count = data_length)] Vec<u8>),
+    UnhandledCard(
+        u16,
+        #[br(count = data_length - 1)] Vec<u8>
+    ),
+
+    #[br(pre_assert(message_type == 0xEDu8))]
+    Log(
+        u8,
+        #[br(count = data_length - 1)] Vec<u8>
+    ),
 
     #[br(pre_assert(message_type == 0xD1u8))]
     EMVTransactionSuccessUnk(#[br(count = data_length)] Vec<u8>),
+
+    #[br(pre_assert(message_type == 0xE5u8))]
+    ProxCardFunctionReply(
+        #[br(pad_before = 1)]
+        u8,
+        u16
+    ),
+
+    // DesFire
+    #[br(pre_assert(message_type == 0xB9u8))]
+    DESFireRead(#[br(count = data_length)] Vec<u8>),
+
+    #[br(pre_assert(message_type == 0xBBu8))]
+    DESFireCardRemoved(),
 
     Unknown(#[br(count = data_length)] Vec<u8>),
 }
@@ -48,3 +72,4 @@ pub struct IppMessage {
     #[brw(if((message_type >> 7) > 0))]
     pub data_crc: u32,
 }
+
