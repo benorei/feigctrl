@@ -4,6 +4,6 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-binrw = "0.15.0"
-serialport = { version = "4.8.1", default-features = false }
-crc = "3.2"
+binrw = "0.15.2"
+serialport = { version = "4.10.1", default-features = false }
+crc = "3.4"

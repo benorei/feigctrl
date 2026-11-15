@@ -1,5 +1,5 @@
 use binrw::{binrw, BinWrite};
-use std::io::Cursor;
+use std::{io::Cursor};
 use crc::{Crc, CRC_8_MAXIM_DOW, CRC_32_JAMCRC};
 
 pub const HDR_CRC: Crc::<u8> = Crc::<u8>::new(&CRC_8_MAXIM_DOW);
@@ -10,14 +10,14 @@ pub const DATA_CRC: Crc::<u32> = Crc::<u32>::new(&CRC_32_JAMCRC);
 #[derive(Debug)]
 pub enum Message {
     // Version
-    #[br(pre_assert(message_type == 0x2u8))]
-    Version(#[br(count = data_length)] Vec<u8>),
+    #[br(pre_assert(message_type == 0x2u8, data_length == 0))]
+    Version, // May be problematic
     #[br(pre_assert(message_type == 0x3u8))]
     VersionReply(#[br(count = data_length)] Vec<u8>),
 
     // Status
     #[br(pre_assert(message_type == 0x4u8))]
-    Status(#[br(count = data_length)] Vec<u8>),
+    Status,
     #[br(pre_assert(message_type == 0x5u8))]
     StatusReply(#[br(count = data_length)] Vec<u8>),
 
@@ -35,20 +35,31 @@ pub enum Message {
     #[br(pre_assert(message_type == 0x11u8))]
     ResetReply(#[br(count = data_length)] Vec<u8>),
 
+    // Lights
+    #[br(pre_assert(message_type == 0x20u8))]
+    Lights(u32),
+    #[br(pre_assert(message_type == 0x20u8))]
+    LightsOn(#[bw(calc = 0x000000C0)] #[bw(big)] u32),
+    #[br(pre_assert(message_type == 0x20u8))]
+    LightsOff(#[bw(calc = 0x00000000)] #[bw(big)] u32),
+
+
     // Buzzer
     #[br(pre_assert(message_type == 0x22u8 && data_length == 4))]
     Buzzer(u16, u16),
 
-    // >=0x80 has crc
+    // >=0x80 has datacrc
+
+    // DesFire
+    #[br(pre_assert(message_type == 0xB9u8))]
+    DESFireRead(#[br(count = data_length)] Vec<u8>),
+
+    #[br(pre_assert(message_type == 0xBBu8))]
+    DESFireCardRemoved(),
+
     #[br(pre_assert(message_type == 0xBEu8))]
     UnhandledCard(
         u16,
-        #[br(count = data_length - 1)] Vec<u8>
-    ),
-
-    #[br(pre_assert(message_type == 0xEDu8))]
-    Log(
-        u8,
         #[br(count = data_length - 1)] Vec<u8>
     ),
 
@@ -58,33 +69,50 @@ pub enum Message {
 
     // Ultralight
     #[br(pre_assert(message_type == 0xD4u8))]
-    UltralightCommand(u8, #[br(count = data_length - 1)] Vec<u8>),
+    UltralightCommand(
+        UltralightSubcommand,
+    ),
     #[br(pre_assert(message_type == 0xD5u8))]
     UltralightReply(
+        #[br(temp)]
+        #[bw(ignore)]  // Will never be used but required for compilation
         u8, // cmd echo
+        #[br(temp)]
+        #[bw(ignore)] // Will never be used but required for compilation
         u8, // status
-        #[br(count = data_length - 2)] Vec<u8> // payload
+        // Give data length !not including! subcmd u8
+        #[br(args(self_0, self_1, data_length - 2))]
+        UltralightSubcommandReply,
     ),
 
+    // ProxCardFunction
+    #[br(pre_assert(message_type == 0xE4u8))]
+    ProxCardFunction(
+        #[bw(big)]
+        u16, // Function
+        
+        #[bw(calc = 1)]
+        u8, // always 1
+        u8 // Set function
+    ),
     #[br(pre_assert(message_type == 0xE5u8))]
     ProxCardFunctionReply(
         #[br(pad_before = 1)]
-        u8,
-        u16 // junk
+        #[br(pad_after = 2)]
+        u8
     ),
 
-    // DesFire
-    #[br(pre_assert(message_type == 0xB9u8))]
-    DESFireRead(#[br(count = data_length)] Vec<u8>),
-
-    #[br(pre_assert(message_type == 0xBBu8))]
-    DESFireCardRemoved(),
+    #[br(pre_assert(message_type == 0xEDu8))]
+    Log(
+        u8,
+        #[br(count = data_length - 1)] Vec<u8>
+    ),
 
     Unknown(#[br(count = data_length)] Vec<u8>),
 }
 
 impl Message {
-    pub fn bin(&self) -> Vec<u8> {
+    fn bin(&self) -> Vec<u8> {
         let mut writer = Cursor::new(Vec::new());
         self.write_le(&mut writer).unwrap();
         return writer.into_inner();
@@ -109,35 +137,161 @@ impl Message {
     }
 
     pub fn kind(&self) -> u8 {
-    match self {
-        Message::Version(_) => {0x2}
-        Message::VersionReply(_) => {0x3}
-        Message::Status(_) => {0x4}
-        Message::StatusReply(_) => {0x5}
-        Message::Heartbeat(_) => {0x7}
-        Message::Startup(_) => {0xF}
-        Message::Reset(_) => {0x10}
-        Message::ResetReply(_) => {0x11}
-        Message::Buzzer(..) => {0x22}
-        Message::DESFireRead(_) => {0xB9}
-        Message::DESFireCardRemoved(..) => {0xBB}
-        Message::UnhandledCard(..) => {0xBE}
-        Message::EMVStatus(_) => {0xD1}
-        Message::UltralightCommand(_, _) => {0xD4}
-        Message::UltralightReply(..) => {0xD5}
-        Message::ProxCardFunctionReply(_,_) => {0xE5}
-        Message::Log(..) => {0xED}
-        Message::Unknown(..) => {0x00}
+        match self {
+            Message::Version => {0x2}
+            Message::VersionReply(..) => {0x3}
+            Message::Status => {0x4}
+            Message::StatusReply(..) => {0x5}
+            Message::Heartbeat(..) => {0x7}
+            Message::Startup(..) => {0xF}
+            Message::Reset(..) => {0x10}
+            Message::ResetReply(..) => {0x11}
+            Message::Lights(..) => {0x20}
+            Message::LightsOn() => {0x20}
+            Message::LightsOff() => {0x20}
+            Message::Buzzer(..) => {0x22}
+            Message::DESFireRead(..) => {0xB9}
+            Message::DESFireCardRemoved(..) => {0xBB}
+            Message::UnhandledCard(..) => {0xBE}
+            Message::EMVStatus(..) => {0xD1}
+            Message::UltralightCommand(..) => {0xD4}
+            Message::UltralightReply(..) => {0xD5}
+            Message::ProxCardFunction(..) => {0xE4}
+            Message::ProxCardFunctionReply(..) => {0xE5}
+            Message::Log(..) => {0xED}
+            Message::Unknown(..) => {0x00}
+        }
     }
 }
+
+// Write Only
+#[binrw]
+// #[br(import(payload_length: u16))]
+#[derive(Debug)]
+pub enum UltralightSubcommand {
+    // payload_length !does not! include subcmd u8.
+    #[bw(magic = 0x02u8)]
+    // #[br(pre_assert(payload_length == 2))]
+    Read {
+        start_page: u8, num_pages: u8,
+    },
+
+    #[bw(magic = 0x03u8)]
+    // #[br(pre_assert(payload_length == 5))]
+    Write {
+        page_addr: u8,
+        data: [u8; 4],
+    },
+
+    #[bw(magic = 0x04u8)]
+    // #[br(pre_assert(payload_length == 16))]
+    AuthenticateRawKey ([u8; 16]),
+
+    #[bw(magic = 0x05u8)]
+    AuthenticateKeyIndex (u16),
+
+    #[bw(magic = 0x06u8)]
+    // #[br(pre_assert(payload_length == 18))]
+    AuthenticateIndexAndKey (u16, [u8; 16]),
+
+    #[bw(magic = 0x07u8)]
+    // #[br(pre_assert(payload_length == 0))]
+    Abort,
+
+    // Invalid(u8, #[br(count = payload_length)] Vec<u8>),
 }
+
+// Read Only
+#[binrw]
+#[br(import(subcmd: u8, status_code: u8, payload_length: u16))]
+#[derive(Debug)]
+pub enum UltralightSubcommandReply {
+
+    #[br(pre_assert(subcmd == 0x00u8 && status_code == 0x00u8))]
+    CardEnteredField (
+        #[br(temp)]
+        #[bw(ignore)] // Never used but required for compilation
+        u8,                                        // Unknown
+        #[br(count = payload_length - 1)] Vec<u8>,    // UID
+    ),
+
+    #[br(pre_assert(subcmd == 0x01u8 && status_code == 0x00u8 && payload_length == 0))]
+    CardLeftField,
+
+    #[br(pre_assert(subcmd == 0x02u8 && status_code == 0x00u8))]
+    // #[br(magic = 0x02u8)]
+    ReadReply (
+        #[br(count = payload_length)]
+        Vec<u8>
+    ),
+
+    #[br(pre_assert(subcmd == 0x03u8 && status_code == 0x00u8))]
+    // #[br(magic = 0x03u8)]
+    #[br(pre_assert(payload_length == 0))]
+    WriteReply,
+
+    #[br(pre_assert(subcmd == 0x04u8 && status_code == 0x00u8))]
+    // #[br(magic = 0x04u8)]
+    #[br(pre_assert(payload_length == 0))]
+    AuthenticateRawKeyReply,
+
+    #[br(pre_assert(subcmd == 0x05u8 && status_code == 0x00u8))]
+    // #[br(magic = 0x06u8)]
+    #[br(pre_assert(payload_length == 0))]
+    AuthenticateKeyIndexReply,
+
+    #[br(pre_assert(subcmd == 0x06u8 && status_code == 0x00u8))]
+    // #[br(magic = 0x06u8)]
+    #[br(pre_assert(payload_length == 0))]
+    AuthenticateIndexAndKeyReply,
+
+    
+
+    #[br(pre_assert(subcmd == 0x07u8 && status_code == 0x00u8))]
+    // #[br(magic = 0x07u8)]
+    #[br(pre_assert(payload_length == 0))]
+    AbortReply,
+
+    #[br(pre_assert(status_code == 0x01u8))]
+    OperationError{
+        #[br(calc = subcmd)] subcmd: u8,
+        #[br(count = payload_length)] payload: Vec<u8>,
+    },
+
+    #[br(pre_assert(status_code == 0x02u8))]
+    InvalidParameters{
+        #[br(calc = subcmd)] subcmd: u8,
+        #[br(count = payload_length)] payload: Vec<u8>,
+    },
+
+    UnknownReply{
+
+        #[br(count = payload_length)] payload: Vec<u8>,
+    },
+}
+
+// #[binrw]
+// #[derive(Debug)]
+// #[derive(PartialEq, Eq)]
+// #[br(repr = u8)]
+// #[bw(repr = u8)]
+// pub enum UltralightSubcommandType {
+//     CardEnteredField = 0x0,
+//     CardLeftField = 0x1,
+//     Read = 0x2,
+//     Write = 0x3,
+//     AuthenticateRawKey = 0x4,
+//     AuthenticateKeyIndex = 0x5,
+//     AuthenticateIndexAndKey = 0x6,
+//     Abort = 0x7,
+// }
 
 #[binrw]
 #[brw(big, magic = 0xbcu8)]
 #[derive(Debug)]
 pub struct IppMessage {
     pub sequence_number: u8,
-    pub unk: u8,
+    pub reply_to: u8,
 
     // MSB of this (when set to 1) determines whether the message uses a data CRC or not
     pub message_type: u8,
@@ -151,3 +305,11 @@ pub struct IppMessage {
     #[brw(if((message_type >> 7) > 0))]
     pub data_crc: u32,
 }
+
+// #[binrw]
+// #[derive(Debug)]
+// #[bw(repr = u32)]
+// pub enum LightStatus {
+//     On = 0xC0000000,
+//     Off = 0x00000000,
+// }
