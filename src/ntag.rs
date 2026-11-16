@@ -30,7 +30,6 @@ impl NTAG {
                         }
                         Err(e) => {
                             return Err(e);
-                            break;
                         }
                     }
                 }
