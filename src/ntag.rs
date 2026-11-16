@@ -1,6 +1,6 @@
 use std::io::{Cursor};
 
-use binrw::{binrw, BinRead};
+use binrw::{BinRead, BinResult, binrw};
 
 // https://www.nxp.com/docs/en/data-sheet/NTAG213_215_216.pdf
 
@@ -29,6 +29,7 @@ impl NTAG {
                             rem -= r.payload_len + 4;
                         }
                         Err(..) => {
+                            eprintln!("Failed to parse record");
                             break;
                         }
                     }
@@ -70,18 +71,24 @@ pub struct NTAGRecord {
 pub enum NTAGPayload {
     #[br(pre_assert(record_type == 0x54u8))]
     Text{
-        lang: [u8; 2],
+        lang: NTAGRecordLanguage,
 
-        #[br(count = payload_len - 2)]
-        txt: Vec<u8>,
-
+        // #[br(count = payload_len - 2)]
+        // txt: Vec<u8>,
+        #[br(parse_with = parse_string)]
+        #[br(args(payload_len - 2))]
+        #[bw(ignore)] // Should never write this message
+        txt: String,
     },
 
     #[br(pre_assert(record_type == 0x55u8))]
     URI{
-        #[br(count = payload_len)]
-        // #[br(pad_before = 1)]
-        txt: Vec<u8>
+        // #[br(count = payload_len)]
+        // txt: Vec<u8>
+        #[br(parse_with = parse_string)]
+        #[br(args(payload_len - 2))]
+        #[bw(ignore)] // Should never write this message
+        txt: String,
     },
 
     Unknown(
@@ -89,4 +96,27 @@ pub enum NTAGPayload {
         Vec<u8>
     ),
 
+}
+
+// There is another version of this in ipp
+#[binrw::parser(reader, endian)]
+fn parse_string (strlen: u8) -> BinResult<String> {
+    let mut v = Vec::<u8>::new();
+    for _ in 0..strlen {
+        v.push(<_>::read_options(reader, endian, ())?);
+    }
+    Ok(String::from_utf8_lossy(&v).into_owned())
+}
+
+// #[binrw]
+pub type NTAGRecordLanguage = [u8; 2];
+
+pub trait NTAGRecordLanguageMethods {
+    fn to_string(&self) -> String;
+}
+
+impl NTAGRecordLanguageMethods for NTAGRecordLanguage {
+    fn to_string(&self) -> String {
+        return String::from_utf8_lossy(self).into();
+    }
 }

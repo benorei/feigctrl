@@ -1,4 +1,4 @@
-use binrw::{binrw, BinWrite};
+use binrw::{BinRead, BinResult, BinWrite, binrw};
 use std::{io::Cursor};
 use crc::{Crc, CRC_8_MAXIM_DOW, CRC_32_JAMCRC};
 
@@ -6,87 +6,20 @@ pub const HDR_CRC: Crc::<u8> = Crc::<u8>::new(&CRC_8_MAXIM_DOW);
 pub const DATA_CRC: Crc::<u32> = Crc::<u32>::new(&CRC_32_JAMCRC);
 
 #[binrw]
-#[br(import(message_type: u8, data_length: u16))]
+// #[br(import(message_type: u8, data_length: u16))]
 #[derive(Debug)]
+#[derive(Default)]
 pub enum Message {
-    // Version
-    #[br(pre_assert(message_type == 0x2u8, data_length == 0))]
-    Version, // May be problematic
-    #[br(pre_assert(message_type == 0x3u8))]
-    VersionReply(#[br(count = data_length)] Vec<u8>),
-
-    // Status
-    #[br(pre_assert(message_type == 0x4u8))]
+    Version,
     Status,
-    #[br(pre_assert(message_type == 0x5u8))]
-    StatusReply(#[br(count = data_length)] Vec<u8>),
-
-    // Heartbeat
-    #[br(pre_assert(message_type == 0x7u8))]
-    Heartbeat(#[br(count = data_length)] Vec<u8>),
-    
-    // Startup
-    #[br(pre_assert(message_type == 0xFu8))]
-    Startup(#[br(count = data_length)] Vec<u8>),
-
-    // Reset
-    #[br(pre_assert(message_type == 0x10u8))]
     Reset(u8),
-    #[br(pre_assert(message_type == 0x11u8))]
-    ResetReply(#[br(count = data_length)] Vec<u8>),
-
-    // Lights
-    #[br(pre_assert(message_type == 0x20u8))]
     Lights(u32),
-    #[br(pre_assert(message_type == 0x20u8))]
     LightsOn(#[bw(calc = 0x000000C0)] #[bw(big)] u32),
-    #[br(pre_assert(message_type == 0x20u8))]
     LightsOff(#[bw(calc = 0x00000000)] #[bw(big)] u32),
-
-
-    // Buzzer
-    #[br(pre_assert(message_type == 0x22u8 && data_length == 4))]
     Buzzer(u16, u16),
-
-    // >=0x80 has datacrc
-
-    // DesFire
-    #[br(pre_assert(message_type == 0xB9u8))]
-    DESFireRead(#[br(count = data_length)] Vec<u8>),
-
-    #[br(pre_assert(message_type == 0xBBu8))]
-    DESFireCardRemoved(),
-
-    #[br(pre_assert(message_type == 0xBEu8))]
-    UnhandledCard(
-        u16,
-        #[br(count = data_length - 1)] Vec<u8>
-    ),
-
-    // EMV
-    #[br(pre_assert(message_type == 0xD1u8))]
-    EMVStatus(#[br(count = data_length)] Vec<u8>),
-
-    // Ultralight
-    #[br(pre_assert(message_type == 0xD4u8))]
     UltralightCommand(
         UltralightSubcommand,
     ),
-    #[br(pre_assert(message_type == 0xD5u8))]
-    UltralightReply(
-        #[br(temp)]
-        #[bw(ignore)]  // Will never be used but required for compilation
-        u8, // cmd echo
-        #[br(temp)]
-        #[bw(ignore)] // Will never be used but required for compilation
-        u8, // status
-        // Give data length !not including! subcmd u8
-        #[br(args(self_0, self_1, data_length - 2))]
-        UltralightSubcommandReply,
-    ),
-
-    // ProxCardFunction
-    #[br(pre_assert(message_type == 0xE4u8))]
     ProxCardFunction(
         #[bw(big)]
         u16, // Function
@@ -95,20 +28,8 @@ pub enum Message {
         u8, // always 1
         u8 // Set function
     ),
-    #[br(pre_assert(message_type == 0xE5u8))]
-    ProxCardFunctionReply(
-        #[br(pad_before = 1)]
-        #[br(pad_after = 2)]
-        u8
-    ),
-
-    #[br(pre_assert(message_type == 0xEDu8))]
-    Log(
-        u8,
-        #[br(count = data_length - 1)] Vec<u8>
-    ),
-
-    Unknown(#[br(count = data_length)] Vec<u8>),
+    #[default]
+    Empty,
 }
 
 impl Message {
@@ -139,27 +60,122 @@ impl Message {
     pub fn kind(&self) -> u8 {
         match self {
             Message::Version => {0x2}
-            Message::VersionReply(..) => {0x3}
             Message::Status => {0x4}
-            Message::StatusReply(..) => {0x5}
-            Message::Heartbeat(..) => {0x7}
-            Message::Startup(..) => {0xF}
             Message::Reset(..) => {0x10}
-            Message::ResetReply(..) => {0x11}
             Message::Lights(..) => {0x20}
             Message::LightsOn() => {0x20}
             Message::LightsOff() => {0x20}
             Message::Buzzer(..) => {0x22}
-            Message::DESFireRead(..) => {0xB9}
-            Message::DESFireCardRemoved(..) => {0xBB}
-            Message::UnhandledCard(..) => {0xBE}
-            Message::EMVStatus(..) => {0xD1}
             Message::UltralightCommand(..) => {0xD4}
-            Message::UltralightReply(..) => {0xD5}
             Message::ProxCardFunction(..) => {0xE4}
-            Message::ProxCardFunctionReply(..) => {0xE5}
-            Message::Log(..) => {0xED}
-            Message::Unknown(..) => {0x00}
+            Message::Empty => {0xFF}
+        }
+    }
+}
+
+#[binrw]
+#[br(import(message_type: u8, data_length: u16))]
+#[derive(Debug)]
+pub enum MessageReply {
+    // Version
+    #[br(pre_assert(message_type == 0x3u8))]
+    VersionReply(
+        #[br(parse_with = parse_string)]
+        #[br(args(data_length))]
+        #[bw(ignore)] // Should never write this message
+        String
+    ),
+
+    // Status
+    // TODO: Remove unnecessary fields
+    #[br(pre_assert(message_type == 0x5u8))]
+    StatusReply(#[br(count = data_length)] Vec<u8>),
+
+    // Heartbeat
+    // TODO: Change vec to heartbeat #
+    #[br(pre_assert(message_type == 0x7u8))]
+    Heartbeat(#[br(count = data_length)] Vec<u8>),
+
+    // Startup
+    #[br(pre_assert(message_type == 0xFu8))]
+    Startup(#[br(count = data_length)] Vec<u8>),
+
+    // Reset
+    #[br(pre_assert(message_type == 0x11u8))]
+    ResetReply(#[br(count = data_length)] Vec<u8>),
+
+    // DesFire
+    #[br(pre_assert(message_type == 0xB9u8))]
+    DESFireRead(#[br(count = data_length)] Vec<u8>),
+
+    #[br(pre_assert(message_type == 0xBBu8))]
+    DESFireCardRemoved(),
+
+    #[br(pre_assert(message_type == 0xBEu8))]
+    UnhandledCard(
+        u16,
+        #[br(count = data_length - 1)] Vec<u8>
+    ),
+
+    // EMV
+    #[br(pre_assert(message_type == 0xD1u8))]
+    EMVStatus(#[br(count = data_length)] Vec<u8>),
+
+    // Ultralight
+    #[br(pre_assert(message_type == 0xD5u8))]
+    UltralightReply(
+        #[br(temp)]
+        #[bw(ignore)]  // Will never be used but required for compilation
+        u8, // cmd echo
+        #[br(temp)]
+        #[bw(ignore)] // Will never be used but required for compilation
+        u8, // status
+        // Give data length !not including! subcmd u8
+        #[br(args(self_0, self_1, data_length - 2))]
+        UltralightSubcommandReply,
+    ),
+
+    // ProxCardFunction
+    #[br(pre_assert(message_type == 0xE5u8))]
+    ProxCardFunctionReply(
+        #[br(pad_before = 1)]
+        #[br(pad_after = 2)]
+        u8
+    ),
+
+    // Log
+    #[br(pre_assert(message_type == 0xEDu8))]
+    Log(
+        u8,
+        #[br(parse_with = parse_string)]
+        #[br(args(data_length - 1))]
+        #[bw(ignore)] // Should never write this message
+        String,
+    ),
+
+    Unknown(
+        #[br(calc = message_type)] #[bw(ignore)] u8,
+        #[br(count = data_length)] Vec<u8>
+    ),
+}
+
+#[allow(unused)]
+impl MessageReply {
+    pub fn kind(&self) -> u8 {
+        match self {
+            MessageReply::VersionReply(..) => {0x3}
+            MessageReply::StatusReply(..) => {0x5}
+            MessageReply::Heartbeat(..) => {0x7}
+            MessageReply::ResetReply(..) => {0x11}
+            MessageReply::Startup(..) => {0xF}
+            MessageReply::DESFireRead(..) => {0xB9}
+            MessageReply::DESFireCardRemoved(..) => {0xBB}
+            MessageReply::UnhandledCard(..) => {0xBE}
+            MessageReply::EMVStatus(..) => {0xD1}
+            MessageReply::UltralightReply(..) => {0xD5}
+            MessageReply::ProxCardFunctionReply(..) => {0xE5}
+            MessageReply::Log(..) => {0xED}
+            MessageReply::Unknown(..) => {0x00}
         }
     }
 }
@@ -270,22 +286,6 @@ pub enum UltralightSubcommandReply {
     },
 }
 
-// #[binrw]
-// #[derive(Debug)]
-// #[derive(PartialEq, Eq)]
-// #[br(repr = u8)]
-// #[bw(repr = u8)]
-// pub enum UltralightSubcommandType {
-//     CardEnteredField = 0x0,
-//     CardLeftField = 0x1,
-//     Read = 0x2,
-//     Write = 0x3,
-//     AuthenticateRawKey = 0x4,
-//     AuthenticateKeyIndex = 0x5,
-//     AuthenticateIndexAndKey = 0x6,
-//     Abort = 0x7,
-// }
-
 #[binrw]
 #[brw(big, magic = 0xbcu8)]
 #[derive(Debug)]
@@ -299,17 +299,23 @@ pub struct IppMessage {
     pub data_length: u16,
     pub crc_header: u8,
 
-    #[br(args(message_type, data_length))]
+    #[br(ignore)]
     pub data: Message,
+
+    #[br(args(message_type, data_length))]
+    #[bw(ignore)]
+    pub reply_data: MessageReply,
 
     #[brw(if((message_type >> 7) > 0))]
     pub data_crc: u32,
 }
 
-// #[binrw]
-// #[derive(Debug)]
-// #[bw(repr = u32)]
-// pub enum LightStatus {
-//     On = 0xC0000000,
-//     Off = 0x00000000,
-// }
+// There is another version of this in ntag
+#[binrw::parser(reader, endian)]
+fn parse_string (strlen: u16) -> BinResult<String> {
+    let mut v = Vec::<u8>::new();
+    for _ in 0..strlen {
+        v.push(<_>::read_options(reader, endian, ())?);
+    }
+    Ok(String::from_utf8_lossy(&v).into_owned())
+}
