@@ -18,7 +18,7 @@ pub enum Message {
     LightsOff(#[bw(calc = 0x00000000)] #[bw(big)] u32),
     Buzzer(u16, u16),
     UltralightCommand(
-        UltralightSubcommand,
+        ULSubcommand,
     ),
     ProxCardFunction(
         #[bw(big)]
@@ -132,7 +132,7 @@ pub enum MessageReply {
         u8, // status
         // Give data length !not including! subcmd u8
         #[br(args(self_0, self_1, data_length - 2))]
-        UltralightSubcommandReply,
+        ULSubcommandReply,
     ),
 
     // ProxCardFunction
@@ -184,7 +184,7 @@ impl MessageReply {
 #[binrw]
 // #[br(import(payload_length: u16))]
 #[derive(Debug)]
-pub enum UltralightSubcommand {
+pub enum ULSubcommand {
     // payload_length !does not! include subcmd u8.
     #[bw(magic = 0x02u8)]
     // #[br(pre_assert(payload_length == 2))]
@@ -221,7 +221,7 @@ pub enum UltralightSubcommand {
 #[binrw]
 #[br(import(subcmd: u8, status_code: u8, payload_length: u16))]
 #[derive(Debug)]
-pub enum UltralightSubcommandReply {
+pub enum ULSubcommandReply {
 
     #[br(pre_assert(subcmd == 0x00u8 && status_code == 0x00u8))]
     CardEnteredField (

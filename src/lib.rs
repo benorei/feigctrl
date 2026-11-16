@@ -1,7 +1,18 @@
 use binrw::{BinRead, BinResult};
 use serialport::{SerialPort};
 use std::io::{Cursor, Result};
-use crate::ipp::{IppMessage, Message, MessageReply, HDR_CRC, DATA_CRC};
+
+pub mod ipp;
+pub mod ntag;
+pub use crate::ipp::*;
+pub use crate::ntag::*;
+
+// TODO
+// - Decide if I want to support NFC writes (probably not)
+// - Update response types to have nicer parsable results
+// - Fix large records not being able to be read: see if there is another ntag/nfc parser
+// - Add more NTAG record types
+// - Package to a crate and move script logic to a new Rust crate
 
 pub struct Feig {
   port: Box<dyn SerialPort>,
@@ -47,9 +58,6 @@ impl Feig {
       return BinResult::Err(e.into());
     } else {
       let mut out_cursor = Cursor::new(&self.current_message);
-      // let Ok(ipp_message) = IppMessage::read(&mut out_cursor) else {
-      //   return Err();
-      // }
       match IppMessage::read(&mut out_cursor) {
         Err(e) => return Err(e),
         Ok(ipp) => return Ok(ipp.reply_data),

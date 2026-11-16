@@ -28,8 +28,8 @@ impl NTAG {
                             records.push(r.payload);
                             rem -= r.payload_len + 4;
                         }
-                        Err(..) => {
-                            eprintln!("Failed to parse record");
+                        Err(e) => {
+                            return Err(e);
                             break;
                         }
                     }
